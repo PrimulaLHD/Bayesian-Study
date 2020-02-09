@@ -1,8 +1,7 @@
 #Bayesian statistics uisng R and jags
 
 # From MOOC: https://www.coursera.org/learn/mcmc-bayesian-statistics
-
-#http://www4.stat.ncsu.edu/~reich/ST590/
+# as well as in http://www4.stat.ncsu.edu/~reich/ST590/
 
 library(rjags)
 
