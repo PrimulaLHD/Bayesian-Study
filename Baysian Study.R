@@ -1140,17 +1140,85 @@ effectiveSize(mod2_sim)
 dic2 = dic.samples(mod2, n.iter=1e3)
 summary(mod2_sim)
 
+################################################################################
+n      <- 20
+Y      <- 4
+a      <- 3
+b      <- 1
+
+library(rjags)
+#The model specification
+model_string <- "model{
+
+  # Likelihood
+  Y ~ dbinom(theta,n)
+
+  # Prior
+  theta ~ dbeta(a, b)
+}"
+
+#Compile the model in JAGS
+model <- jags.model(textConnection(model_string), 
+                    data = list(Y=Y,n=n,a=a,b=b))
+#Draw samples
+update(model, 10000, progress.bar="none"); # Burnin for 10000 samples
+
+samp <- coda.samples(model, 
+                     variable.names=c("theta"), 
+                     n.iter=20000, progress.bar="none")
+
+summary(samp)
+
+plot(samp)
+
+
+#######################################
+#poisson model
+N      <- 20
+Y      <- 11
+a      <- 0.5
+b      <- 0.5
 
 
 
+model_string_pois <- "model{
+  # Likelihood (can't have formulas in distribution functions)
+  Y ~ dpois(mu)
+  mu <- N*lamda
+  # Prior
+  lamda ~dgamma(a,b)
+}"
+
+#Compile the model in JAGS
+model.pois <- jags.model(textConnection(model_string_pois),
+                         data = list(Y=Y,N=N,a=a,b=b))
+
+
+#Draw samples
+update(model.pois, 10000, progress.bar="none") # Burnin for 10000 samples
 
 
 
+samp.pois <- coda.samples(model.pois, 
+                     variable.names=c("lamda"), 
+                     n.iter=20000, progress.bar="none")
+
+summary(samp.pois)
+
+plot(samp.pois)
 
 
 
+################################################################################
+################ocupancy model
+setwd("C:/Users/lihai/Documents/GitHub/Bayesian Study/OccupancyData")
+Paguma_larvata_inner<-read.table("Paguma_larvata_hist_inner.txt",head=TRUE)
 
+CBLcovs80<-read.table("CBLcovs80.txt",head=TRUE)
 
+CBLcov80.std<-decostand(CBLcovs80,method="standardize")
+
+Pagumalarvata80<-unmarkedFrameOccu(y=Paguma_larvata_inner,siteCovs= CBLcov80.std)
 
 
 
