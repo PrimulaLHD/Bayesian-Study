@@ -1212,7 +1212,10 @@ plot(samp.pois)
 ################################################################################
 ################ocupancy model
 setwd("C:/Users/lihai/Documents/GitHub/Bayesian Study/OccupancyData")
-Paguma_larvata_inner<-read.table("Paguma_larvata_hist_inner.txt",head=TRUE)
+library(rjags)
+library(vegan)
+Paguma_larvata_inner <-read.table("Paguma_larvata_hist_inner.txt",head=TRUE)
+str(Paguma_larvata_inner)
 
 CBLcovs80<-read.table("CBLcovs80.txt",head=TRUE)
 
@@ -1220,7 +1223,32 @@ CBLcov80.std<-decostand(CBLcovs80,method="standardize")
 
 Pagumalarvata80<-unmarkedFrameOccu(y=Paguma_larvata_inner,siteCovs= CBLcov80.std)
 
+###Occupancy model
+#1.Specify the model.
 
+occu_model_string <- " model {
+  for (i in 1:nsites) {
+    z[i] ~ dbern(psi)
+    p.eff[i] <- z[i] * p
+    for (j in 1:nvisits) {
+      y[i,j] ~ dbern(p.eff[i])
+    } #j
+  } #i
+  # Priors
+  psi ~ dunif(0, 1)
+  p ~ dunif(0, 1)
+  # Derived quantities
+  occ.fs <- sum(z[])
+} "
+
+
+# 2.Set up the model.
+
+
+# 3. Run the MCMC sampler.
+
+
+# 4. Post processing.
 
 
 
