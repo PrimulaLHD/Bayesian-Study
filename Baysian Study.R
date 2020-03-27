@@ -1235,20 +1235,274 @@ occu_model_string <- " model {
     } #j
   } #i
   # Priors
-  psi ~ dunif(0, 1)
-  p ~ dunif(0, 1)
+  psi ~ dunif(0, 1.0)
+  p ~ dunif(0, 1.0)
   # Derived quantities
   occ.fs <- sum(z[])
 } "
 
 
 # 2.Set up the model.
+occ.data <- list(y = Paguma_larvata_inner, nsites = nrow(Paguma_larvata_inner),
+                 nvisits = ncol(Paguma_larvata_inner))
+# Initial values
+zst <- apply(Paguma_larvata_inner, 1, max)
+zst <- rep(1,80)
+inits <- function() {list(z = zst)}
+# Parameters monitored
+params <- c("psi", "p", "occ.fs")
+occ.mod <- jags.model(textConnection(occu_model_string),data = occ.data,
+                      inits = inits, n.chains=3)
 
+# MCMC settings
+nc <- 3; ni <- 5000; nb <- 2000
 
 # 3. Run the MCMC sampler.
 
+out.occ <- jagsUI::jags(occ.data, inits, params, textConnection(occu_model_string),
+                n.chains=nc, n.iter=ni, n.burn = nb)
+
+update(occ.mod,2000)
+occ.mod_sim <- coda.samples(occ.mod,variable.names = params,n.iter = 8000)
+
 
 # 4. Post processing.
+summary(occ.mod_sim)
+plot(occ.mod_sim)
+
+###covariate model
+occu_cov_model_string <- " model {
+  # Ecological model
+  for (i in 1:nsites) {
+    z[i] ~ dbern(psi[i])
+    # Observation model
+    p.eff[i] <- z[i] * p[i]
+    for (j in 1:nvisits) {
+      y[i,j] ~ dbern(p.eff[i])
+    } #j
+  } #i
+  # covariates
+  for (i in 1:nsites){
+    logit(psi[i]) = beta.psi[1] + beta.psi[2]*elevation[i]
+    logit(p[i]) = beta.p[1] + beta.p[2]*elevation[i]
+  }
+  # Priors
+  for (b in 1:2){
+    beta.psi[b] ~ dnorm(0, 0.01)
+    beta.p[b] ~ dnorm(0, 0.01)
+  }
+  #psi ~ dunif(0, 1.0)
+  #p ~ dunif(0, 1.0)
+  # Derived quantities
+  #occ.fs <- sum(z[])
+  } "
+
+# 2.Set up the model.
+occ.cov.data <- list(y = Paguma_larvata_inner, nsites = nrow(Paguma_larvata_inner),
+                 nvisits = ncol(Paguma_larvata_inner),
+                 elevation = CBLcovs80$elevation_RANGE)
+# Initial values
+#zst <- apply(Paguma_larvata_inner, 1, max)
+zst <- rep(1,80)
+inits <- function() {list(z = zst,beta.psi=c(0.38,-1.82),
+                          beta.p=c(-2.45,1.29))}
+# Parameters monitored
+params <- c("beta.psi", "beta.p","psi", "p", "occ.fs")
+occ.cov.mod <- jags.model(textConnection(occu_cov_model_string),data = occ.cov.data,
+                      inits = inits, n.chains=3)
+
+# MCMC settings
+nc <- 3; ni <- 5000; nb <- 2000
+
+# 3. Run the MCMC sampler.
+
+out.occ <- jagsUI::jags(occ.data, inits, params, textConnection(occu_model_string),
+                        n.chains=nc, n.iter=ni, n.burn = nb)
+
+update(occ.mod,2000)
+occ.mod_sim <- coda.samples(occ.mod,variable.names = params,n.iter = 8000)
+
+
+
+###########################################################################################
+###########################################################################################
+###Doing Bayesian Data Analysis in brms and the tidyverse
+###2020/03/21
+library(brms)
+library(tidyverse)
+library(tidyverse)
+
+d <-
+  crossing(iteration = 1:3,
+           stage     = factor(c("Prior", "Posterior"),
+                              levels = c("Prior", "Posterior"))) %>% 
+  expand(nesting(iteration, stage),
+         Possibilities = LETTERS[1:4]) %>% 
+  mutate(Credibility   = c(rep(.25, times = 4),
+                           0, rep(1/3, times = 3),
+                           0, rep(1/3, times = 3),
+                           rep(c(0, .5), each = 2),
+                           rep(c(0, .5), each = 2),
+                           rep(0, times = 3), 1))
+
+d
+
+text <-
+  tibble(Possibilities = "B",
+         Credibility   = .75,
+         label         = str_c(LETTERS[1:3], " is\nimpossible"),
+         iteration     = 1:3,
+         stage         = factor("Posterior", 
+                                levels = c("Prior", "Posterior")))
+arrow <-
+  tibble(Possibilities = LETTERS[1:3],
+         iteration     = 1:3) %>% 
+  expand(nesting(Possibilities, iteration),
+         Credibility = c(0.6, 0.01)) %>% 
+  mutate(stage = factor("Posterior", levels = c("Prior", "Posterior")))
+
+
+d %>%
+  ggplot(aes(x = Possibilities, y = Credibility)) +
+  geom_col(color = "grey30", fill = "grey30") +
+  # annotation in the bottom row
+  geom_text(data = text, 
+            aes(label = label)) +
+  # arrows in the bottom row
+  geom_line(data = arrow,
+            arrow = arrow(length = unit(0.30, "cm"), 
+                          ends = "first", type = "closed")) +
+  facet_grid(stage ~ iteration) +
+  theme(axis.ticks.x = element_blank(),
+        panel.grid = element_blank(),
+        strip.text.x = element_blank())
+
+
+HtWtDataGenerator <- function(nSubj, rndsd = NULL, maleProb = 0.50) {
+  # Random height, weight generator for males and females. Uses parameters from
+  # Brainard, J. & Burmaster, D. E. (1992). Bivariate distributions for height and
+  # weight of men and women in the United States. Risk Analysis, 12(2), 267-275.
+  # Kruschke, J. K. (2011). Doing Bayesian data analysis:
+  # A Tutorial with R and BUGS. Academic Press / Elsevier.
+  # Kruschke, J. K. (2014). Doing Bayesian data analysis, 2nd Edition:
+  # A Tutorial with R, JAGS and Stan. Academic Press / Elsevier.
+  
+  # require(MASS)
+  
+  # Specify parameters of multivariate normal (MVN) distributions.
+  # Men:
+  HtMmu   <- 69.18
+  HtMsd   <- 2.87
+  lnWtMmu <- 5.14
+  lnWtMsd <- 0.17
+  Mrho    <- 0.42
+  Mmean   <- c(HtMmu, lnWtMmu)
+  Msigma  <- matrix(c(HtMsd^2, Mrho * HtMsd * lnWtMsd,
+                      Mrho * HtMsd * lnWtMsd, lnWtMsd^2), nrow = 2)
+  # Women cluster 1:
+  HtFmu1   <- 63.11
+  HtFsd1   <- 2.76
+  lnWtFmu1 <- 5.06
+  lnWtFsd1 <- 0.24
+  Frho1    <- 0.41
+  prop1    <- 0.46
+  Fmean1   <- c(HtFmu1, lnWtFmu1)
+  Fsigma1  <- matrix(c(HtFsd1^2, Frho1 * HtFsd1 * lnWtFsd1,
+                       Frho1 * HtFsd1 * lnWtFsd1, lnWtFsd1^2), nrow = 2)
+  # Women cluster 2:
+  HtFmu2   <- 64.36
+  HtFsd2   <- 2.49
+  lnWtFmu2 <- 4.86
+  lnWtFsd2 <- 0.14
+  Frho2    <- 0.44
+  prop2    <- 1 - prop1
+  Fmean2   <- c(HtFmu2, lnWtFmu2)
+  Fsigma2  <- matrix(c(HtFsd2^2, Frho2 * HtFsd2 * lnWtFsd2,
+                       Frho2 * HtFsd2 * lnWtFsd2, lnWtFsd2^2), nrow = 2)
+  
+  # Randomly generate data values from those MVN distributions.
+  if (!is.null(rndsd)) {set.seed(rndsd)}
+  datamatrix <- matrix(0, nrow = nSubj, ncol = 3)
+  colnames(datamatrix) <- c("male", "height", "weight")
+  maleval <- 1; femaleval <- 0 # arbitrary coding values
+  for (i in 1:nSubj)  {
+    # Flip coin to decide sex
+    sex <- sample(c(maleval, femaleval), size = 1, replace = TRUE,
+                  prob = c(maleProb, 1 - maleProb))
+    if (sex == maleval) {datum = MASS::mvrnorm(n = 1, mu = Mmean, Sigma = Msigma)}
+    if (sex == femaleval) {
+      Fclust = sample(c(1, 2), size = 1, replace = TRUE, prob = c(prop1, prop2))
+      if (Fclust == 1) {datum = MASS::mvrnorm(n = 1, mu = Fmean1, Sigma = Fsigma1)}
+      if (Fclust == 2) {datum = MASS::mvrnorm(n = 1, mu = Fmean2, Sigma = Fsigma2)}
+    }
+    datamatrix[i, ] = c(sex, round(c(datum[1], exp(datum[2])), 1))
+  }
+  
+  return(datamatrix)
+} # end function
+
+
+# set your seed to make the data generation reproducible
+set.seed(57)
+
+d <-
+  HtWtDataGenerator(nSubj = 57, maleProb = .5) %>%
+  as_tibble()
+
+d %>%
+  head()
+
+fit2.1 <- 
+  brm(data = d, 
+      family = gaussian,
+      weight ~ 1 + height,
+      prior = c(prior(normal(0, 100), class = Intercept),
+                prior(normal(0, 100), class = b),
+                prior(cauchy(0, 10),  class = sigma)),
+      chains = 4, cores = 4, iter = 2000, warmup = 1000,
+      seed = 2)
+
+# extract the posterior draws
+post <- posterior_samples(fit2.1)
+
+# this will streamline some of the code, below
+n_lines <- 150
+
+# plot!
+d %>% 
+  ggplot(aes(x = height, y = weight)) +
+  geom_abline(intercept = post[1:n_lines, 1], 
+              slope     = post[1:n_lines, 2],
+              color = "grey50", size = 1/4, alpha = .3) +
+  geom_point(alpha = 2/3) +
+  # the `eval(substitute(paste()))` trick came from: https://www.r-bloggers.com/value-of-an-r-object-in-an-expression/
+  labs(subtitle = eval(substitute(paste("Data with", 
+                                        n_lines, 
+                                        "credible regression lines"))),
+       x = "Height in inches",
+       y = "Weight in pounds") +
+  coord_cartesian(xlim = 55:80,
+                  ylim = 50:250) +
+  theme(panel.grid = element_blank())
+
+library(tidybayes)
+
+post %>% 
+  ggplot(aes(x = b_height, y = 0)) +
+  stat_histintervalh(point_interval = mode_hdi, .width = .95,
+                     fill = "grey67", slab_color = "grey92",
+                     breaks = 40, slab_size = .2, outline_bars = T) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  coord_cartesian(xlim = 0:8) +
+  labs(title = "The posterior distribution",
+       subtitle = "The mode and 95% HPD intervals are\nthe dot and horizontal line at the bottom.",
+       x = expression(paste(beta[1], " (slope)"))) +
+  theme(panel.grid = element_blank())
+
+
+
+
+
 
 
 
